@@ -1,0 +1,255 @@
+---
+title: "Statistical analysis"
+date: "`r Sys.Date()`"
+output:
+  officedown::rdocx_document:
+    tables:
+      caption:
+        pre: "Table "
+        sep: ". "
+    plots:
+      caption:
+        pre: "Figure "
+        sep: ". "
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE, warning = FALSE, message = FALSE,
+  fig.width = 6.3, fig.height = 6.3, dpi = 300   # 6.3 in = text width of an A4 page
+)
+
+# Import required libraries
+library(tidyverse)
+library(ggpubr)
+library(rstatix)
+library(dplyr)
+library(tibble)
+library(flextable)
+source(".\\utils.R")
+
+# Table look for Word: Times New Roman, compact rows, booktabs rules
+set_flextable_defaults(
+  font.family = "Times New Roman", hansi.family = "Times New Roman",
+  eastasia.family = "Times New Roman", cs.family = "Times New Roman",
+  font.size = 10,
+  padding.top = 2, padding.bottom = 2, padding.left = 4, padding.right = 4,
+  theme_fun = theme_booktabs
+)
+
+# ---- Reporting helpers --------------------------------------------------
+
+# APA-style p value: "< .001" or "= .023"
+format_p_apa <- function(p) {
+  if (p < .001) "< .001" else paste("=", sub("^0", "", sprintf("%.3f", p)))
+}
+
+# One-line result for a friedman.test() object, written as markdown
+report_friedman <- function(ft) {
+  sprintf(
+    "Friedman rank sum test on MAE across models: *\u03c7*^2^(%d) = %.2f, *p* %s.",
+    as.integer(ft$parameter), unname(ft$statistic), format_p_apa(ft$p.value)
+  )
+}
+
+# Numbers to text with 3 decimals; very small non-zero values in scientific notation
+format_num <- function(x) {
+  out <- formatC(x, format = "f", digits = 3)
+  tiny <- !is.na(x) & x != 0 & abs(x) < 0.001
+  out[tiny] <- formatC(x[tiny], format = "e", digits = 2)
+  out[is.na(x)] <- ""
+  out
+}
+
+# Turn any results data frame into a Word table:
+# first column left-aligned, the rest right-aligned (as in the old kable calls)
+word_table <- function(df) {
+  df <- as.data.frame(df)
+  if (.row_names_info(df) > 0) {             # keep meaningful row names as a column
+    df <- tibble::rownames_to_column(df, var = "rowname")
+  }
+  df <- dplyr::mutate(df, dplyr::across(dplyr::where(is.double), format_num))
+
+  ft <- flextable(df)
+  if ("rowname" %in% names(df)) ft <- set_header_labels(ft, rowname = "")
+  ft <- theme_booktabs(ft)
+  ft <- align(ft, align = "right", part = "all")
+  ft <- align(ft, j = 1, align = "left", part = "all")
+  autofit(ft)
+}
+```
+
+```{r load-data, include=FALSE}
+# Load all data
+valence_data <- read.csv("C:\\Users\\20225378\\OneDrive - TU Eindhoven\\PhD\\Experiments\\Collecting Images of Indoor Environments\\R code\\all_results_valence.csv")
+tense_arousal_data <- read.csv("C:\\Users\\20225378\\OneDrive - TU Eindhoven\\PhD\\Experiments\\Collecting Images of Indoor Environments\\R code\\all_results_tense.csv")
+energetic_arousal_data <- read.csv("C:\\Users\\20225378\\OneDrive - TU Eindhoven\\PhD\\Experiments\\Collecting Images of Indoor Environments\\R code\\all_results_energetic.csv")
+
+library(ggcorrplot)
+
+data <- read.csv("C:\\Users\\20225378\\Desktop\\Extract Visual Features\\Extracted Visual Features\\Combined\\combined_visual_features.csv")
+```
+
+## Valence
+
+```{r friedman-valence}
+friedman_valence <- friedman.test(MAE ~ Model | X, data = valence_data)
+```
+
+`r report_friedman(friedman_valence)`
+
+```{r wilcox-valence, tab.id = "wilcox_valence", tab.cap = "Outcomes of Wilcoxon signed-ranks pairwise post hoc tests for models predicting valence responses."}
+wilcox_valence <- wilcox_test(MAE ~ Model, data = valence_data, paired = TRUE, p.adjust.method = "bonferroni", detailed = TRUE)
+
+cliff_delta_valence <- get_cliff_delta(valence_data)
+
+word_table(extract_wilcox_table(wilcox_valence, cliff_delta_valence))
+```
+
+## Tense arousal
+
+```{r friedman-tense}
+friedman_tense <- friedman.test(MAE ~ Model | X, data = tense_arousal_data)
+```
+
+`r report_friedman(friedman_tense)`
+
+```{r wilcox-tense, tab.id = "wilcox_tense", tab.cap = "Outcomes of Wilcoxon signed-ranks pairwise post hoc tests for models predicting tense arousal responses."}
+wilcox_tense <- wilcox_test(MAE ~ Model, data = tense_arousal_data, paired = TRUE, p.adjust.method = "bonferroni", detailed = TRUE)
+
+cliff_delta_tense <- get_cliff_delta(tense_arousal_data)
+
+word_table(extract_wilcox_table(wilcox_tense, cliff_delta_tense))
+```
+
+## Energetic arousal
+
+```{r friedman-energetic}
+friedman_energetic <- friedman.test(MAE ~ Model | X, data = energetic_arousal_data)
+```
+
+`r report_friedman(friedman_energetic)`
+
+```{r wilcox-energetic, tab.id = "wilcox_energetic", tab.cap = "Outcomes of Wilcoxon signed-ranks pairwise post hoc tests for models predicting energetic arousal responses."}
+wilcox_energetic <- wilcox_test(MAE ~ Model, data = energetic_arousal_data, paired = TRUE, p.adjust.method = "bonferroni", detailed = TRUE)
+
+cliff_delta_energetic <- get_cliff_delta(energetic_arousal_data)
+
+word_table(extract_wilcox_table(wilcox_energetic, cliff_delta_energetic))
+```
+
+## Model error distributions (paper Figure 3)
+
+```{r mae-boxplots, fig.id = "mae_boxplots", fig.cap = "Mean absolute error (MAE) of each model for valence, tense arousal and energetic arousal."}
+library(ggplot2)
+
+plot_results <- function(data, title, limits, breaks) {
+  plot <- ggboxplot(data,x = "Model",y = "MAE",fill = "grey85", colour = "black",palette = "jco",
+                    alpha = 0.6,add = "jitter",add.params = list(alpha = 0.4, size = 1, jitter = 0.2)) +
+    theme_pubr() +
+    theme(
+      legend.position = "none",     # remove redundant legend
+      axis.text.x = element_text(angle = 20, hjust = 1, size = 12),
+      axis.text.y = element_text(size = 12),
+      axis.title = element_text(size = 14, face = "bold"),
+      plot.title = element_text(size = 16, face = "bold", hjust = 0.5)
+    ) +
+    labs(x = "Model Type",y = "Mean Absolute Error (MAE)",title = title) +
+    scale_y_continuous(limits = limits,breaks = breaks)
+  return(plot)
+
+}
+
+
+valence_plot <- plot_results(data = valence_data, title = "Valence", limits = c(0.4, 0.6), breaks = seq(0.4, 0.6, by = 0.05))
+tense_arousal_plot <- plot_results(data = tense_arousal_data, title = "Tense Arousal", limits = c(0.3, 0.5),breaks = seq(0.3, 0.5, by = 0.05))
+energetic_arousal_plot <- plot_results(data = energetic_arousal_data, title = "Energetic Arousal", limits = c(0.2, 0.4),breaks = seq(0.2, 0.4, by = 0.05))
+
+# arrangeGrob builds the layout without drawing it, so it appears in the document only once
+boxplot_modelling <- gridExtra::arrangeGrob(valence_plot, tense_arousal_plot, energetic_arousal_plot, ncol=2, nrow=2,layout_matrix=rbind(c(1,1, 2,2), c(NA, 3, 3, NA)))
+
+# Vector version for the paper
+ggsave(file="C:\\Users\\20225378\\OneDrive - TU Eindhoven\\PhD\\Experiments\\Collecting Images of Indoor Environments\\plots\\modelling_boxplot.svg", plot=boxplot_modelling, width=10, height=10)
+
+# Word version: render at the paper's 10 x 10 in so text sizes match the SVG,
+# then insert it scaled down to the page width (fig.width above)
+word_png <- knitr::fig_path(".png")
+dir.create(dirname(word_png), recursive = TRUE, showWarnings = FALSE)
+ggsave(word_png, plot = boxplot_modelling, width = 10, height = 10, dpi = 300, bg = "white")
+knitr::include_graphics(word_png, dpi = NA)   # dpi = NA: let fig.width set the size
+```
+
+## Model performance summary (paper Table 3)
+
+```{r performance-table, tab.id = "model_performance", tab.cap = "Mean R², RMSE and MAE of each model for each response."}
+data_list <- list(
+  "Valence" = valence_data,
+  "Tense Arousal" = tense_arousal_data,
+  "Energetic Arousal" = energetic_arousal_data
+)
+
+tbl <- imap_dfr(data_list, \(dat, resp) {
+  dat %>%
+    group_by(Model) %>%
+    summarise(
+      R2 = round(mean(Rsquared, na.rm = FALSE), 2),
+      RMSE = round(mean(RMSE, na.rm = FALSE), 2),
+      MAE = round(mean(MAE, na.rm = FALSE), 2),
+      .groups = "drop"
+    ) %>%
+    filter(Model %in% c("LR", "RF", "DFNN", "DCNN", "C-DCNN")) %>%
+    mutate(Model = dplyr::recode(Model, "C-DCNN" = "CDCNN")) %>%
+    pivot_longer(-Model, names_to = "Metric", values_to = "Value") %>%
+    mutate(
+      Value = sprintf("%.2f", Value),
+      name = paste(Model, Metric, sep = "_")
+    ) %>%
+    select(name, Value) %>%
+    pivot_wider(names_from = name, values_from = Value) %>%
+    mutate(Response = resp, .before = 1)
+})
+
+
+tbl <- tbl %>%
+  select(
+    Response,
+    LR_R2, LR_RMSE, LR_MAE,
+    RF_R2, RF_RMSE, RF_MAE,
+    DFNN_R2, DFNN_RMSE, DFNN_MAE,
+    DCNN_R2, DCNN_RMSE, DCNN_MAE,
+    CDCNN_R2, CDCNN_RMSE, CDCNN_MAE
+  )
+
+# -------------------------------
+# Word table (flextable)
+# -------------------------------
+metric_cols <- setdiff(names(tbl), "Response")
+metric_labels <- setNames(as.list(rep(c("R2", "RMSE", "MAE"), times = 5)), metric_cols)
+thick <- fp_border_default(width = 1.5)
+thin  <- fp_border_default(width = 0.75)
+
+perf_table <- flextable(tbl) %>%
+  set_header_labels(values = c(list(Response = "Response"), metric_labels)) %>%
+  add_header_row(
+    values = c("Response", "Linear Model", "Random Forest", "DFNN", "DCNN", "C-DCNN"),
+    colwidths = c(1, 3, 3, 3, 3, 3)
+  ) %>%
+  merge_at(i = 1:2, j = 1, part = "header") %>%
+  flextable::compose(                       # R2 -> R with superscript 2
+    part = "header", i = 2, j = grep("_R2$", names(tbl)),
+    value = as_paragraph("R", as_sup("2"))
+  ) %>%
+  border_remove() %>%
+  hline_top(part = "header", border = thick) %>%
+  hline(i = 1, j = 2:ncol(tbl), part = "header", border = thin) %>%   # rule under model names
+  hline_bottom(part = "header", border = thin) %>%
+  hline_bottom(part = "body", border = thick) %>%
+  align(align = "center", part = "all") %>%
+  align(j = 1, align = "left", part = "all") %>%
+  valign(j = 1, valign = "bottom", part = "header") %>%
+  fontsize(size = 9, part = "all") %>%
+  set_table_properties(layout = "autofit", width = 1) %>%       # stretch to page width
+  fix_border_issues()
+
+# Print table
+perf_table
+```
