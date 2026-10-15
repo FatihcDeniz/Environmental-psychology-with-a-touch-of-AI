@@ -1,12 +1,10 @@
-# Understanding affective responses to indoor environments using machine learning
+# Environmental psychology with a touch of AI: understanding affective responses to indoor environments using machine learning
 
 Please read this before using the the Code. This folder contains the code and materials for "Environmental psychology with a touch of AI: understanding affective responses to indoor environments using machine learning". You can find the article [here](), and can contact the corresponding author by sending an email to `f.c.deniz@tue.nl`.
 
 ## Repository Structure
 
 Before running the code please download IDEAS dataset from here: `https://osf.io/g9ze5`. You can unzip dataset in the samefolder. 
-
-This repository seperated into multiple folders for processing the raw dataset and running the statistical analysis, explained below.
 
 `Python Code`: this folder contains all scripts need to run LR, RF, DFNN, DCNN and C-DCNN models created in the study. You can run LR and RF model `LR_and_RF.ipynb`, DFNN model by running `DFNN.ipynb`, DCNN and C-DCNN model by running `DCNN.ipynb`. All SHAP analysis in `LR_and_RF.ipynb`. 
 
